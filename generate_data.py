@@ -51,7 +51,7 @@ accent_descriptions = {
     "AU": "a thick, friendly Australian Outback accent",
     "ES": "a melodic Spanish accent speaking English"
 }
-for i in range(1, 4):
+for i in range(1, 6):
     # Pick a random region, then a random voice from that region
     selected_region = random.choice(list(accents.keys()))
     selected_voice = random.choice(accents[selected_region])
@@ -76,7 +76,7 @@ for i in range(1, 4):
         )
     )
 
-    print(f"Generating conversation. Speaker 2 is using voice: {selected_voice}")
+    print(f"Generating conversation. Speaker 2 is using voice: {selected_voice} from region: {selected_region}")
 
     prompt_text = f"""
     [STYLE GUIDE: Speaker1 is a professional receptionist. Speaker2 has {description} and sounds very tired.]
@@ -100,7 +100,7 @@ for i in range(1, 4):
 
     tele_audio = telephone_filter(raw_data, sample_rate=24000)
 
-    filename = f"{base_filename}-{i}{extension}"
+    filename = f"{base_filename}-{i}-{selected_voice}-{selected_region}{extension}"
     # 2. Save at 8000 Hz for the final "crushed" effect
     with wave.open(filename, "wb") as wav_file:
         wav_file.setnchannels(1)
