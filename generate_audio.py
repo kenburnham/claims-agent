@@ -29,7 +29,8 @@ client_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=client_key)
 base_filename = "audio_files/telephone_call"
 extension = ".wav"
-transcript_filepath = "json_files/transcripts.jsonl"
+transcript_filepath = "json_files/golden_claims_no_audio.jsonl"
+claims_with_audio_filepath = "json_files/golden_claims_complete.jsonl"
 accents = {
     "US": ["puck", "kore", "charon", "leda", "fenrir",  "callirrhoe", "erinome", "umbriel", "despina", "pulcherrima"],
     "GB": ["algenib", "schedar", "autonoe", "sadaltager", "sadachbia"],
@@ -42,10 +43,24 @@ accent_descriptions = {
     "IN": "a relatively thick Indian accent",
     "ES": "a relatively thick Spanish accent"
 }
-with open(transcript_filepath, "r", encoding="utf-8") as f:
+
+
+with open(transcript_filepath, "r", encoding="utf-8-sig") as f:
     for i, line in enumerate(f):
+        # SAFETY CHECK: Skip empty lines
+        line = line.strip()
+        if not line:
+            continue
+        # 1. Parse the line into a dictionary
         data = json.loads(line)
-        current_transcript = json.dumps(data, indent=4)
+        
+        # 2. Extract ONLY the transcript string
+        # We use .get() to avoid crashing if a line is weird
+        current_transcript = data.get("transcript", "")
+        
+        if not current_transcript:
+            print(f"Skipping Row {i}: No transcript found.")
+            continue
         # Pick a random region, then a random voice from that region
         selected_region = random.choice(list(accents.keys()))
         selected_voice = random.choice(accents[selected_region])
@@ -100,3 +115,9 @@ with open(transcript_filepath, "r", encoding="utf-8") as f:
                 wav_file.setframerate(8000) # This is the "Telephone" speed
                 wav_file.writeframes(tele_audio.tobytes())
             print(f"Successfully created: {filename}")
+            data["audio_filename"] = filename
+        
+            # 5. WRITE TO THE NEW JSONL
+            # This keeps your record and audio file perfectly synced
+            with open(claims_with_audio_filepath, "a", encoding="utf-8") as f_out:
+                f_out.write(json.dumps(data, ensure_ascii=False) + "\n")

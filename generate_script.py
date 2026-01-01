@@ -8,14 +8,22 @@ import numpy as np
 from scipy.signal import butter, lfilter
 import random
 import json
+import re
+import logging
+
+def clean_llm_json(raw_text):
+    """Removes markdown and attempts to parse. Returns None if it fails."""
+    clean_text = re.sub(r'```(?:json)?\n?|```', '', raw_text).strip()
+    try:
+        return json.loads(clean_text)
+    except json.JSONDecodeError:
+        return None  # Return None so the loop knows it failed
+
 
 client_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=client_key)
-
-transcript_output_filename = "json_files/transcripts.jsonl"
-json_output_filename = "json_files/json.jsonl"
-comparison_check_filename = "json_files/check.jsonl"
-transcript_count = 50
+json_output_filename = "json_files/golden_claims_no_audio.jsonl"
+transcript_count = 3
 incidents = ["Low-Speed Collision (Fender Bender): Minor impact where the car is still drivable but has visible body damage.", 
              "Vandalism: Keying, spray paint, or intentional damage to the vehicle's exterior.", 
              "Hit and Run (Parked): Finding the car damaged in a parking lot with no note left by the other driver.", 
@@ -31,6 +39,7 @@ incidents = ["Low-Speed Collision (Fender Bender): Minor impact where the car is
              "Structural Fire: Damage caused by engine fires or external fires (like a garage fire) that compromise the vehicle's frame.", 
              "Severe Weather/Natural Disaster: Flood damage (water in the cabin), car being crushed by a fallen tree, or massive hail damage across all panels."
 ]
+
 for i in range(1, (transcript_count + 1)):
     # Pick a random region, then a random voice from that region
     incident_choice = random.choice(incidents)
@@ -110,28 +119,23 @@ for i in range(1, (transcript_count + 1)):
         contents=json_prompt
     )
 
-    check_prompt = f""" Please compare the following transcript with the following json to confirm that the json appropriately pulled all of the correct information.
-    If all looks good, please output "TRUE", if not, please output "FALSE" and state what is not correct.
-    TRANSCRIPT: {response.text}
-    JSON: {json_script.text}"""
+    claim_data = clean_llm_json(json_script.text)
 
-    double_check = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=check_prompt
-    )
-
-    print(f"TRANSCRIPT: {response.text}")
-    print(f"JSON: {json_script.text}")
-    print(f"CHECK: {double_check.text}")
-
-    with open(transcript_output_filename, "a", encoding="utf-8") as f:
-        # Convert dict to string and add a newline
-        f.write(json.dumps(response.text) + "\n")
+    # 2. Safety Check: If JSON failed, don't save anything for this iteration
+    if claim_data is None:
+        logging.error(f"Skipping record: LLM returned invalid JSON. Raw text: {json_script.text[:50]}...")
+        # You might want to save the raw error to a separate 'dead-letter' file here
+        with open("failed_raw_responses.txt", "a") as f_err:
+            f_err.write(json_script.text + "\n---\n")
+        continue  # <--- This jumps to the next iteration of the loop
     
+    # 3. If we got here, the JSON is valid. Add the transcript.
+    # We use .get() or check if response.text exists to avoid AttributeErrors
+    transcript_text = getattr(response, 'text', "No transcript provided").strip()
+    claim_data["transcript"] = transcript_text
+
+    # 4. Save the successfully merged record
     with open(json_output_filename, "a", encoding="utf-8") as f:
-        # Convert dict to string and add a newline
-        f.write(json.dumps(json_script.text) + "\n")
-    
-    with open(comparison_check_filename, "a", encoding="utf-8") as f:
-        # Convert dict to string and add a newline
-        f.write(json.dumps(double_check.text) + "\n")
+        f.write(json.dumps(claim_data, ensure_ascii=False) + "\n")
+        logging.info(f"Successfully saved claim for: {claim_data.get('policy_info', {}).get('insured_full_name', 'Unknown')}")
+    print(f"Saved: claim {i}")
